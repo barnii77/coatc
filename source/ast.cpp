@@ -127,7 +127,7 @@ std::string const &ast::VarRef::getVarName() const {
 
 ast::Constant::Constant(
     LocationInfo loc,
-    uint8_t value
+    uint64_t value
 ) : ast::Expr(loc), m_value(value)
 {}
 

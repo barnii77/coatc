@@ -124,10 +124,10 @@ public:
 };
 
 class Constant : public Expr {
-    uint8_t m_value;
+    uint64_t m_value;
 
 public:
-    Constant(LocationInfo loc, uint8_t value);
+    Constant(LocationInfo loc, uint64_t value);
     std::string toJsonString() const override;
     ExprKind getKind() const override;
     void *codegen(void *ctx_) const override;

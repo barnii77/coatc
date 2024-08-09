@@ -26,20 +26,26 @@ typedef struct Error {
     std::string msg;
 } Error;
 
+typedef struct Warning {
+    LocationInfo loc;
+    std::string msg;
+} Warning;
+
 typedef struct State {
     std::unordered_map<std::string, llvm::AllocaInst*> named_values{};
     llvm::BasicBlock *declarations_block = nullptr;
 } State;
 
 typedef struct Context {
+    State *state = nullptr;
     std::unique_ptr<llvm::LLVMContext> llvm_ctx;
     std::unique_ptr<llvm::IRBuilder<>> builder;
     std::unique_ptr<llvm::Module> module;
     std::vector<Error> *errors = nullptr;
-    State *state = nullptr;
+    std::vector<Warning> *warnings = nullptr;
 } Context;
 
-Context newContext(StringRef file, std::vector<Error> *errs, State *cg_state);
+Context newContext(StringRef file, std::vector<Error> *errs, std::vector<Warning> *warns, State *cg_state);
 
 class CodeGenException : public std::exception {
 public:

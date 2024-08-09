@@ -18,7 +18,7 @@ class UnexpectedTokenError : public std::exception {
     std::string m_message;
 
 public:
-    UnexpectedTokenError(std::string const &message, std::optional<token::Token> const &unexpected_token);
+    UnexpectedTokenError(std::string const &message, std::optional<token::Token> const &unexpected_token, char const *note = nullptr);
     char const *what();
     std::string const &getMessage();
 };
@@ -44,8 +44,7 @@ typedef struct TokenIter {
 
 // TODO replace line and file by LocationInfo loc field
 typedef struct Error {
-    uint32_t line;
-    StringRef file;
+    LocationInfo loc;
     std::string msg;
 } Error;
 

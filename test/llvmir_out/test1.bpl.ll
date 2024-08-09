@@ -18,74 +18,72 @@ block_lifetimes_start:                            ; preds = %entry
 block_entry:                                      ; preds = %block_lifetimes_start
   store i8 3, ptr %a, align 1
   %a.loadtmp = load i8, ptr %a, align 1
-  %multmp = mul i8 %a.loadtmp, 3
-  %subtmp = sub i8 %multmp, 2
-  %calltmp = call i8 @add1(i8 %subtmp)
+  %multmp = mul i8 %a.loadtmp, 63
+  %calltmp = call i8 @add1(i8 %multmp)
   store i8 %calltmp, ptr %b1, align 1
-  %a.loadtmp2 = load i8, ptr %a, align 1
-  %subtmp3 = sub i8 1, %a.loadtmp2
-  %condtmp = icmp ne i8 %subtmp3, 0
-  br i1 %condtmp, label %cond_true, label %cond_false
+  br i1 true, label %cond_true, label %cond_false
 
 cond_true:                                        ; preds = %block_entry
-  br label %block_lifetimes_start4
+  br label %block_lifetimes_start2
 
-block_lifetimes_start4:                           ; preds = %cond_true
-  br label %block_entry5
+block_lifetimes_start2:                           ; preds = %cond_true
+  br label %block_entry3
 
-block_entry5:                                     ; preds = %block_lifetimes_start4
+block_entry3:                                     ; preds = %block_lifetimes_start2
   ret i8 1
   br label %block_lifetimes_end
 
-block_lifetimes_end:                              ; preds = %block_entry5
+block_lifetimes_end:                              ; preds = %block_entry3
   store i8 0, ptr %if_result, align 1
   br label %post_if
 
 cond_false:                                       ; preds = %block_entry
-  br label %block_lifetimes_start6
+  br label %block_lifetimes_start4
 
-block_lifetimes_start6:                           ; preds = %cond_false
-  br label %block_entry7
+block_lifetimes_start4:                           ; preds = %cond_false
+  br label %block_entry5
 
-block_entry7:                                     ; preds = %block_lifetimes_start6
-  %a.loadtmp8 = load i8, ptr %a, align 1
-  br label %block_lifetimes_end9
+block_entry5:                                     ; preds = %block_lifetimes_start4
+  %a.loadtmp6 = load i8, ptr %a, align 1
+  %negtmp = sub i8 0, %a.loadtmp6
+  br label %block_lifetimes_end7
 
-block_lifetimes_end9:                             ; preds = %block_entry7
-  store i8 %a.loadtmp8, ptr %if_result, align 1
+block_lifetimes_end7:                             ; preds = %block_entry5
+  store i8 %negtmp, ptr %if_result, align 1
   br label %post_if
 
-post_if:                                          ; preds = %block_lifetimes_end9, %block_lifetimes_end
+post_if:                                          ; preds = %block_lifetimes_end7, %block_lifetimes_end
   %if_result.loadtmp = load i8, ptr %if_result, align 1
   br label %cond_block
 
-cond_block:                                       ; preds = %block_lifetimes_end14, %post_if
+cond_block:                                       ; preds = %block_lifetimes_end12, %post_if
   %b.loadtmp = load i8, ptr %b1, align 1
   %0 = icmp ne i8 %b.loadtmp, 0
   br i1 %0, label %loop_body, label %post_while
 
 loop_body:                                        ; preds = %cond_block
-  br label %block_lifetimes_start10
+  br label %block_lifetimes_start8
 
-block_lifetimes_start10:                          ; preds = %loop_body
-  br label %block_entry11
+block_lifetimes_start8:                           ; preds = %loop_body
+  br label %block_entry9
 
-block_entry11:                                    ; preds = %block_lifetimes_start10
-  %b.loadtmp12 = load i8, ptr %b1, align 1
-  %calltmp13 = call i8 @print(i8 %b.loadtmp12)
-  br label %block_lifetimes_end14
+block_entry9:                                     ; preds = %block_lifetimes_start8
+  %b.loadtmp10 = load i8, ptr %b1, align 1
+  %calltmp11 = call i8 @print(i8 %b.loadtmp10)
+  br label %block_lifetimes_end12
 
-block_lifetimes_end14:                            ; preds = %block_entry11
+block_lifetimes_end12:                            ; preds = %block_entry9
   br label %cond_block
 
 post_while:                                       ; preds = %cond_block
-  %a.loadtmp15 = load i8, ptr %a, align 1
-  %calltmp16 = call i8 @print(i8 %a.loadtmp15)
-  ret i8 0
-  br label %block_lifetimes_end17
+  %a.loadtmp13 = load i8, ptr %a, align 1
+  %calltmp14 = call i8 @print(i8 %a.loadtmp13)
+  ret i8 105
+  br label %block_lifetimes_end15
 
-block_lifetimes_end17:                            ; preds = %post_while
+block_lifetimes_end15:                            ; preds = %post_while
   call void @llvm.lifetime.end(i64 8, ptr %a)
+  ret i8 0
 }
 
 define i8 @add1(i8 %x) {
@@ -106,6 +104,7 @@ block_entry:                                      ; preds = %block_lifetimes_sta
   br label %block_lifetimes_end
 
 block_lifetimes_end:                              ; preds = %block_entry
+  ret i8 0
 }
 
 ; Function Attrs: nocallback nofree nosync nounwind willreturn memory(argmem: readwrite)

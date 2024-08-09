@@ -6,12 +6,13 @@ fn main(b) {
         return 1;
         0
     } else {
-        -a
+        //-a
     };
     while (b) {
         print(b);
     }
     print(a);
+    while {}
     return 0x69;
 }
 

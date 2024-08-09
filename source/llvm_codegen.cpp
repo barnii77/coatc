@@ -54,10 +54,11 @@ void createPrototype(codegen::Context *ctx, ast::FunctionProto const *proto) {
     }
 }
 
-codegen::Context codegen::newContext(StringRef file, std::vector<codegen::Error> *errs, codegen::State *cg_state) {
+codegen::Context codegen::newContext(StringRef file, std::vector<codegen::Error> *errs, std::vector<codegen::Warning> *warns, codegen::State *cg_state) {
     auto result = codegen::Context {
-        .errors = errs,
         .state = cg_state,
+        .errors = errs,
+        .warnings = warns,
     };
     result.llvm_ctx = std::make_unique<llvm::LLVMContext>();
     result.builder = std::make_unique<llvm::IRBuilder<>>(*result.llvm_ctx);
@@ -193,9 +194,17 @@ void *ast::Block::codegen(void *ctx_) const {
                 createPrototype(ctx, &stmt->getProto());
         }
         for (auto const &stmt : m_statements) {
-            if (stmt->getKind() == ast::StatementKind::function_def)
-                stmt->codegen(ctx);
-            else if (stmt->getKind() == ast::StatementKind::decl_assignment) {
+            if (stmt->getKind() == ast::StatementKind::function_def) {
+                try {
+                    stmt->codegen(ctx);
+                } catch (codegen::CodeGenException e) {
+                    ctx->state = &new_state;
+                    ctx->errors->push_back(codegen::Error {
+                        .loc = e.m_loc,
+                        .msg = std::move(e.m_message),
+                    });
+                }
+            } else if (stmt->getKind() == ast::StatementKind::decl_assignment) {
                 throw std::runtime_error("TODO: implement global variables");
             } else
                 throw std::runtime_error("parser generated other statement type in toplevel even though it should only generate function defs and decl assignments");
@@ -289,7 +298,11 @@ void *ast::If::codegen(void *ctx_) const {
     // condition true branch
     ctx->builder->SetInsertPoint(cond_true_bb);
     llvm::Value *cond_true_result = static_cast<llvm::Value*>(m_branch->codegen(ctx));
-    ctx->builder->CreateStore(cond_true_result, if_result);
+
+    if (cond_true_result)
+        ctx->builder->CreateStore(cond_true_result, if_result);
+    else
+        ctx->builder->CreateStore(llvm::ConstantInt::get(*ctx->llvm_ctx, llvm::APInt(8, 0, false)), if_result);
     ctx->builder->CreateBr(post_if_bb);
     cond_true_bb = ctx->builder->GetInsertBlock();
 
@@ -315,10 +328,16 @@ void *ast::If::codegen(void *ctx_) const {
                 + "; false branch type: "
                 + llvmTypeAsString(cond_false_result->getType());
         if (message)
-            throw codegen::CodeGenException(std::move(message.value()), m_loc);
+            ctx->warnings->push_back(codegen::Warning {
+                .loc = m_loc,
+                .msg = std::move(message.value()),
+            });
     }
 
-    ctx->builder->CreateStore(cond_false_result, if_result);
+    if (cond_false_result)
+        ctx->builder->CreateStore(cond_false_result, if_result);
+    else
+        ctx->builder->CreateStore(llvm::ConstantInt::get(*ctx->llvm_ctx, llvm::APInt(8, 0, false)), if_result);
     ctx->builder->CreateBr(post_if_bb);
     cond_false_bb = ctx->builder->GetInsertBlock();
 
@@ -387,11 +406,13 @@ void *ast::FunctionDef::codegen(void *ctx_) const {
     llvm::Value *implicit_ret = static_cast<llvm::Value*>(m_block->codegen(ctx));
     if (implicit_ret)
         ctx->builder->CreateRet(implicit_ret);
+    else
+        ctx->builder->CreateRet(llvm::ConstantInt::get(*ctx->llvm_ctx, llvm::APInt(8, 0, false)));
     ctx->builder->SetInsertPoint(declarations_bb);
     ctx->builder->CreateBr(entry_bb);
     ctx->state = old_state_ptr;
-    if (!ctx->errors->size())
-        llvm::verifyFunction(*fn);
+    // if (!ctx->errors->size())
+    llvm::verifyFunction(*fn);
     return nullptr;
 }
 

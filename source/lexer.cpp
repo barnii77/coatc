@@ -10,6 +10,7 @@ Token { \
     .meta = std::nullopt, \
     .loc = LocationInfo { \
         .line = line, \
+        .column = column, \
         .file = file, \
     }, \
 }
@@ -24,6 +25,7 @@ result.push_back(Token { \
     .meta = std::nullopt, \
     .loc = LocationInfo { \
         .line = line, \
+        .column = column, \
         .file = file, \
     }, \
 }); break;
@@ -55,29 +57,68 @@ std::string displayTokenType(TokenType t) {
     return "<UnknownTokenType>";
 }
 
-std::vector<Token> tokenize(StringRef file, char const *code, uint32_t length) {
+std::vector<Token> tokenize(StringRef file, StringRef code_) {
+    char const *code = code_.start;
+    uint32_t length = code_.length;
     std::vector<Token> result;
     uint32_t line = 1;
+    uint32_t column = 0;
     bool is_comment = false;
     bool last_was_slash = false;
-    for (uint32_t i = 0; i < length; i++) {
+    bool last_was_zero = false;
+    bool hex_mode = false;
+    for (uint32_t i = 0; i < length; i++, column++) {
         char c = code[i];
-        if (last_was_slash && c == '/')
+        if (last_was_slash && c == '/') {
             is_comment = true;
+            result.pop_back();  // remove the slash that has already been added
+        }
 
         if (c == ' ')
             continue;
         else if (c == '\n') {
             line++;
+            column = -1;
             is_comment = false;
+            continue;
         }
 
-        last_was_slash = c == '/';
         if (is_comment)
             continue;
 
+        if (last_was_zero && c == 'x') {
+            last_was_zero = false;
+            hex_mode = true;
+            continue;
+        } else if (last_was_zero) {
+            result.push_back(
+                Token {
+                    .value = StringRef {
+                        .start = code + i - 1,
+                        .length = 1,
+                    },
+                    .type = TokenType::number,
+                    .meta = TokenMeta {.number = 0},
+                    .loc = LocationInfo {
+                        .line = line,
+                        .column = column,
+                        .file = file,
+                    }
+                }
+            );
+        }
+
+        if (c == '0') {
+            last_was_zero = true;
+            continue;
+        } else
+            last_was_zero = false;
+
+
+        last_was_slash = c == '/';
+
         uint32_t start = i;
-        if (std::isalpha(c) || c == '_') {
+        if ((std::isalpha(c) || c == '_') && !hex_mode) {
             std::string ident;
             while (i < length && (std::isalpha(c) || c == '_' || std::isdigit(c))) {
                 ident += c;
@@ -123,29 +164,37 @@ std::vector<Token> tokenize(StringRef file, char const *code, uint32_t length) {
                         .meta = std::nullopt,
                         .loc = LocationInfo {
                             .line = line,
+                            .column = column,
                             .file = file,
                         },
                     }
                 );
             }
-        } else if (std::isdigit(c) || c == '.') {
-            std::string num_buffer;
-            while (i < length && (std::isdigit(c) || c == '.')) {
-                num_buffer += c;
+        } else if (std::isdigit(c) || (hex_mode && (('a' <= c && c <= 'f') || ('A' <= c && c <= 'F')))) {
+            uint64_t num = 0;
+            uint64_t base = hex_mode ? 16 : 10;
+            while (i < length && (std::isdigit(c) || (hex_mode && (('a' <= c && c <= 'f') || ('A' <= c && c <= 'F'))))) {
+                if (hex_mode && 'A' <= c && c <= 'F')
+                    c -= 'A' - 10;
+                else if (hex_mode && 'a' <= c && c <= 'f')
+                    c -= 'a' - 10;
+                else
+                    c -= '0';
+                num = base * num + c;
                 if (++i < length) c = code[i];
             }
             i--;
-            uint8_t num = std::stoi(num_buffer);
             result.push_back(
                 Token {
                     .value = StringRef {
-                        .start = code + start,
-                        .length = i - start + 1,
+                        .start = code + start - hex_mode * 2,
+                        .length = i - start + 1 + hex_mode * 2,
                     },
                     .type = TokenType::number,
                     .meta = TokenMeta {.number = num},
                     .loc = LocationInfo {
                         .line = line,
+                        .column = column,
                         .file = file,
                     }
                 }
@@ -165,7 +214,24 @@ std::vector<Token> tokenize(StringRef file, char const *code, uint32_t length) {
             case '}': SWITCH_CHARS_BRANCH(right_brace);
             default: break;
         }
+        hex_mode = false;
     }
+    if (last_was_zero)
+        result.push_back(
+            Token {
+                .value = StringRef {
+                    .start = code + length - 1,
+                    .length = 1,
+                },
+                .type = TokenType::number,
+                .meta = TokenMeta {.number = 0},
+                .loc = LocationInfo {
+                    .line = line,
+                    .column = column,
+                    .file = file,
+                }
+            }
+        );
     result.push_back(
         Token {
             .value = StringRef {
@@ -176,6 +242,7 @@ std::vector<Token> tokenize(StringRef file, char const *code, uint32_t length) {
             .meta = std::nullopt,
             .loc = LocationInfo {
                 .line = line,
+                .column = column,
                 .file = file,
             }
         }

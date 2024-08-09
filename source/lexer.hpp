@@ -40,7 +40,7 @@ typedef enum class TokenType : uint32_t {
 std::string displayTokenType(TokenType t);
 
 typedef union TokenMeta {
-    uint8_t number;
+    uint64_t number;
 } TokenMeta;
 
 typedef struct Token {
@@ -50,5 +50,5 @@ typedef struct Token {
     LocationInfo loc;
 } Token;
 
-std::vector<Token> tokenize(StringRef file, char const *code, uint32_t length);
+std::vector<Token> tokenize(StringRef file, StringRef code_);
 }  // namespace Token
