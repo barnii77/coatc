@@ -11,6 +11,10 @@ ast::ExprKind ast::Expr::getKind() const {
     return ast::ExprKind::abstract_expr_type;
 }
 
+std::string const &ast::Expr::getVarName() const {
+    throw std::runtime_error("called getVarName on non-ident ast node");
+}
+
 ast::Statement::Statement(LocationInfo loc) : m_loc(loc)
 {}
 
@@ -20,6 +24,10 @@ std::string ast::Statement::toJsonString() const {
 
 ast::StatementKind ast::Statement::getKind() const {
     return ast::StatementKind::abstract_statement_type;
+}
+
+ast::FunctionProto const &ast::Statement::getProto() const {
+    throw std::runtime_error("called getProto on non-function-def ast node");
 }
 
 #define BOTFFTT_MAP(kind, mapped) if (t == token::TokenType::kind) return BinaryOpType::mapped
@@ -111,6 +119,10 @@ std::string ast::VarRef::toJsonString() const {
 
 ast::ExprKind ast::VarRef::getKind() const {
     return ast::ExprKind::var_ref;
+}
+
+std::string const &ast::VarRef::getVarName() const {
+    return m_name;
 }
 
 ast::Constant::Constant(
@@ -235,10 +247,6 @@ ast::StatementKind ast::FunctionDef::getKind() const {
     return ast::StatementKind::function_def;
 }
 
-ast::FunctionProto const &ast::FunctionDef::getProto() const {
-    return m_proto;
-}
-
 std::string ast::FunctionDef::toJsonString() const {
     std::string result = jsonLocPrefix(m_loc) + "\"kind\": \"function_def\", \"proto\": {\"name\": \"" + m_proto.name + "\", \"args\": [";
     for (uint32_t i = 0; i < m_proto.args.size(); i++) {
@@ -248,6 +256,10 @@ std::string ast::FunctionDef::toJsonString() const {
     }
     result = result + "]}, \"block\": " + m_block->toJsonString() + "}";
     return result;
+}
+
+ast::FunctionProto const &ast::FunctionDef::getProto() const {
+    return m_proto;
 }
 
 ast::DeclAssignment::DeclAssignment(

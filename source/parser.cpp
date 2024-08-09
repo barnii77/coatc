@@ -35,9 +35,9 @@ std::vector<token::TokenType> const end_of_block_non_expression_breakers = creat
 
 UnexpectedTokenError::UnexpectedTokenError(std::string const &message, std::optional<token::Token> const &unexpected_token) {
     if (unexpected_token)
-        m_message = std::string("unexpected token of type ")
+        m_message = std::string("unexpected token of type \"")
             + token::displayTokenType(unexpected_token.value().type)
-            + "; info: "
+            + "\"; info: "
             + message;
     else
         m_message = std::string("ran out of tokens unexpectedly; info: ")
@@ -134,7 +134,7 @@ token::Token expectNoneOf(std::vector<token::TokenType> unexpected_types, std::o
         throw UnexpectedTokenError(std::string("expected token **not** of one of some types, but got nullopt"), tok);
     if (std::count(unexpected_types.begin(), unexpected_types.end(), tok.value().type) == 0)
         return tok.value();
-    std::string msg = "did not expected token of one of types {";
+    std::string msg = "did not expect token of one of types {";
     std::string prefix = "\"";
     for (auto const &unexpected_type : unexpected_types)
         msg += prefix + token::displayTokenType(unexpected_type) + "\",";
@@ -588,18 +588,22 @@ std::unique_ptr<ast::FunctionDef> parseFunctionDef(ParseState *ps) {
 
     expect(token::TokenType::left_paren, ps->next());
     std::vector<std::string> args;
-    bool last_was_comma = true;
-    while (true) {
-        if (last_was_comma) {
-            auto arg = expect(token::TokenType::ident, ps->next());
-            args.push_back(std::string(arg.value.start, arg.value.length));
-            last_was_comma = false;
-        } else {
-            auto next_tok = expectOneOf({token::TokenType::comma, token::TokenType::right_paren}, ps->next());
-            if (next_tok.type == token::TokenType::right_paren) break;
-            last_was_comma = true;
+    expectOneOf({token::TokenType::ident, token::TokenType::right_paren}, ps->peek());
+    if (ps->peek().value().type == token::TokenType::ident) {
+        bool last_was_comma = true;
+        while (true) {
+            if (last_was_comma) {
+                auto arg = expect(token::TokenType::ident, ps->next());
+                args.push_back(std::string(arg.value.start, arg.value.length));
+                last_was_comma = false;
+            } else {
+                auto next_tok = expectOneOf({token::TokenType::comma, token::TokenType::right_paren}, ps->next());
+                if (next_tok.type == token::TokenType::right_paren) break;
+                last_was_comma = true;
+            }
         }
-    }
+    } else
+        ps->next();
     
     expect(token::TokenType::left_brace, ps->peek());
     std::unique_ptr<ast::Block> block = parseBlock(ps);
@@ -610,24 +614,20 @@ std::unique_ptr<ast::FunctionDef> parseFunctionDef(ParseState *ps) {
 std::unique_ptr<ast::Statement> parseStatement(ParseState *ps, bool is_toplevel) {
     auto keyword_tok = expectSome(ps->peek());
     auto ty = keyword_tok.type;
-    if (ty == token::TokenType::let_kwd) return parseDeclAssignment(ps);
-    if (ty == token::TokenType::fn_kwd) {
-        if (is_toplevel)
-            return parseFunctionDef(ps);
-        else
-            expectNot(token::TokenType::fn_kwd, keyword_tok);
-    }
-    if (ty == token::TokenType::return_kwd) {
-        if (is_toplevel)
-            expectNot(token::TokenType::return_kwd, keyword_tok);
-        else
-            return parseReturn(ps);
-    }
+    if (is_toplevel)
+        expectOneOf({token::TokenType::let_kwd, token::TokenType::fn_kwd}, keyword_tok);
+    else
+        expectNot(token::TokenType::fn_kwd, keyword_tok);
+
+    if (ty == token::TokenType::let_kwd)
+        return parseDeclAssignment(ps);
+    if (ty == token::TokenType::fn_kwd)
+        return parseFunctionDef(ps);
+    if (ty == token::TokenType::return_kwd)
+        return parseReturn(ps);
 
     // expression as a statement (eg `function(xyz);`)
     auto expr = parseExpression(ps);
-    // those statements with an attached block don't need semicolons
-
     std::unique_ptr<ast::Statement> stmt;
     if (expectSome(ps->peek()).type == token::TokenType::equals) {
         // parse an expr assignment: `x = 5; *((char *)y[0]) = 6;` and so on (replaces parseAssignment function for efficiency)
@@ -636,6 +636,7 @@ std::unique_ptr<ast::Statement> parseStatement(ParseState *ps, bool is_toplevel)
         expect(token::TokenType::semicolon, ps->next());
         stmt = std::make_unique<ast::Assignment>(keyword_tok.loc, std::move(expr), std::move(value));
     } else {
+        // those statements with an attached block don't need semicolons
         if (ty != token::TokenType::if_kwd
             && ty != token::TokenType::while_kwd
             && ty != token::TokenType::left_brace)
@@ -648,44 +649,80 @@ std::unique_ptr<ast::Statement> parseStatement(ParseState *ps, bool is_toplevel)
 std::unique_ptr<ast::Block> parseBlock(ParseState *ps, bool is_toplevel/* = false*/, bool allow_implicit_return/* = true*/) {
     // NOTE: this is safe when parsing toplevel because of eof token
     auto loc = expectSome(ps->peek()).loc;
-    if (!is_toplevel)
-        expect(token::TokenType::left_brace, ps->next());
-
-    uint32_t n_parens = 0;
-    uint32_t block_end = -1;
-    uint32_t n_statements = 0;
+    uint32_t block_result_start = -1;
     uint32_t init_remain = ps->iter.n_remain;
-    bool broke_out = false;
-    // TODO this is gonna be really hard: figure out how to compute num statements
-    // where not every statement ends on semicolon or has a fn kwd. anything that has a block
-    // attached to it can also be a statement without a semicolon. however, it could also be a return if it is the last thing in the block.
-    // glhf future me
-    for (uint32_t i = 0; i < ps->iter.n_remain - 1; i++) {
-        auto ty = ps->iter.tokens[i].type;
-        if (ty == token::TokenType::left_brace)
-            n_parens++;
-        else if (ty == token::TokenType::right_brace) {
-            if (n_parens)
-                n_parens--;
-            else {
-                block_end = i;
-                broke_out = true;
-                break;
+    bool block_has_result;
+
+    if (is_toplevel) {
+        block_result_start = ps->iter.n_remain - 1;
+        block_has_result = false;
+    } else {
+        expect(token::TokenType::left_brace, ps->next());
+        init_remain--;
+        uint32_t n_braces = 0;
+        uint32_t block_end = -1;
+        uint32_t n_statements = 0;
+        bool broke_out = false;
+        
+        // find block end
+        for (uint32_t i = 0; i < ps->iter.n_remain - 1; i++) {
+            auto ty = ps->iter.tokens[i].type;
+            if (ty == token::TokenType::left_brace)
+                n_braces++;
+            else if (ty == token::TokenType::right_brace) {
+                if (n_braces)
+                    n_braces--;
+                else {
+                    block_end = i;
+                    broke_out = true;
+                    break;
+                }
             }
         }
-        if (!n_parens && (
-            ty == token::TokenType::semicolon
-            || ty == token::TokenType::fn_kwd
-        ))
-            n_statements++;
+        if (!n_braces && !broke_out)
+            block_end = ps->iter.n_remain - 1;  // eof token
+
+        if (block_end == -1)
+            throw std::runtime_error("block_end has invalid value, this is probably a parser bug. Please report to developer.");
+
+        // now go backwards from block end to find border between block result and statements
+        //
+        bool last_was_else_kwd = false;
+        uint32_t n_parens = 0;
+        n_braces = 0;
+        for (uint32_t i = block_end - 1; i != -1; i--) {
+            auto ty = ps->iter.tokens[i].type;
+
+            if (ty == token::TokenType::else_kwd)
+                last_was_else_kwd = true;
+            else
+                last_was_else_kwd = false;
+
+            if (!n_braces && !n_parens && (ty == token::TokenType::semicolon || (ty == token::TokenType::right_brace && !last_was_else_kwd))) {
+                block_result_start = i + 1;
+                break;
+            }
+
+            if (ty == token::TokenType::left_brace)
+                n_braces--;
+            else if (ty == token::TokenType::right_brace)
+                n_braces++;
+            else if (ty == token::TokenType::left_paren)
+                n_parens--;
+            else if (ty == token::TokenType::right_paren)
+                n_parens++;
+        }
+
+        if (block_result_start == -1)
+            block_result_start = 0;
+        block_has_result = block_result_start != block_end;
     }
-    if (!n_parens && !broke_out)
-        block_end = ps->iter.n_remain - 1;  // eof token
+
     
     std::vector<std::unique_ptr<ast::Statement>> statements;
-    for (; n_statements; n_statements--) {
+    while (init_remain - ps->iter.n_remain < block_result_start) {
         auto current_tok_ = ps->peek();
-        if (!current_tok_) {
+        if (!current_tok_ || current_tok_.value().type == token::TokenType::eof) {
             auto err = Error {
                 .line = 0,
                 .file = ps->file,
@@ -696,7 +733,7 @@ std::unique_ptr<ast::Block> parseBlock(ParseState *ps, bool is_toplevel/* = fals
         }
         auto current_tok = current_tok_.value();
         try {
-            auto stmt = parseStatement(ps);
+            auto stmt = parseStatement(ps, is_toplevel);
             statements.push_back(std::move(stmt));
         } catch (UnexpectedTokenError e) {
             auto err = Error {
@@ -707,15 +744,15 @@ std::unique_ptr<ast::Block> parseBlock(ParseState *ps, bool is_toplevel/* = fals
             ps->errors->push_back(std::move(err));
         }
         // consume redundant semicolons (that were interpreted as statements -> decrease n_statements)
-        for (; ps->peek() && ps->peek().value().type == token::TokenType::semicolon; n_statements--)
+        while (ps->peek() && ps->peek().value().type == token::TokenType::semicolon)
             ps->next();
     }
 
     auto current_tok_ = ps->peek();
     std::optional<std::unique_ptr<ast::Expr>> result = std::nullopt;
-    if (allow_implicit_return && current_tok_) {
+    if (block_has_result && allow_implicit_return && current_tok_ && current_tok_.value().type != token::TokenType::eof) {
         auto current_tok = current_tok_.value();
-        if (init_remain - ps->iter.n_remain < block_end) {
+        if (init_remain - ps->iter.n_remain == block_result_start) {
             try {
                 result = parseExpression(ps);
             } catch (UnexpectedTokenError e) {
@@ -731,9 +768,6 @@ std::unique_ptr<ast::Block> parseBlock(ParseState *ps, bool is_toplevel/* = fals
 
     if (!is_toplevel)
         expect(token::TokenType::right_brace, ps->next());
-    // TODO can invalid code lead to the below being wrong?
-    // else
-    //     expect(token::TokenType::eof, ps->next());
 
     auto block = std::make_unique<ast::Block>(loc, std::move(statements), std::move(result), is_toplevel);
     return block;

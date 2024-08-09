@@ -21,6 +21,7 @@ add_library(
     source/lexer.cpp
     source/ast.cpp
     source/parser.cpp
+    source/llvm_codegen.cpp
 )
 
 target_include_directories(
@@ -45,6 +46,22 @@ target_compile_features(compiler_exe PRIVATE cxx_std_17)
 
 target_link_libraries(compiler_exe PRIVATE compiler_lib)
 
+find_package(LLVM REQUIRED)
+
+set(LLVM_MIN_VERSION "10.0.0")
+
+if(${LLVM_VERSION} VERSION_LESS ${LLVM_MIN_VERSION})
+    message(FATAL_ERROR "LLVM version must be ${LLVM_MIN_VERSION} or higher")
+endif()
+
+target_link_libraries(compiler_lib PRIVATE
+    LLVMCore
+    LLVMIRReader
+    LLVMAnalysis
+    LLVMTransformUtils
+    LLVMBitWriter
+    # LLVMVerifier
+)
 # ---- Install rules ----
 
 if(NOT CMAKE_SKIP_INSTALL_RULES)

@@ -11,3 +11,4 @@ typedef struct LocationInfo {
     uint32_t line;
     StringRef file;
 } LocationInfo;
+

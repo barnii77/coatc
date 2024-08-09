@@ -11,7 +11,6 @@
 #include <optional>
 
 namespace ast {
-// TODO attach to Expr
 typedef enum class ExprKind {
     abstract_expr_type,
     unary_op,
@@ -22,9 +21,8 @@ typedef enum class ExprKind {
     block,
     if_,
     while_,
-} ExprType;
+} ExprKind;
 
-// TODO attach to Statement
 typedef enum class StatementKind {
     abstract_statement_type,
     assignment,
@@ -34,15 +32,10 @@ typedef enum class StatementKind {
     expr_stmt,
 } StatementKind;
 
-// TODO attach to Expr and Statement
-typedef struct CodeGenError {
-    uint32_t line;
-    std::string msg;
-} CodeGenError;
-
-// forward declare CodeGenContext here and implement it in codegen.hpp
-struct CodeGenContext;
-typedef struct CodeGenContext CodeGenContext;
+typedef struct FunctionProto {
+    std::string name;
+    std::vector<std::string> args;
+} FunctionProto;
 
 class Expr {
 protected:
@@ -52,11 +45,11 @@ public:
     Expr(LocationInfo loc);
     virtual std::string toJsonString() const;
     virtual ExprKind getKind() const;
-    // virtual llvm::Value *codegen(CodeGenContext *ctx);
+    virtual std::string const &getVarName() const;
+    virtual void *codegen(void *ctx_) const;
 };
 
 class Statement {
-    // TODO codegen method
 protected:
     LocationInfo m_loc;
 
@@ -64,7 +57,8 @@ public:
     Statement(LocationInfo loc);
     virtual std::string toJsonString() const;
     virtual StatementKind getKind() const;
-    // virtual llvm::Value *codegen(CodeGenContext *ctx);
+    virtual FunctionProto const &getProto() const;
+    virtual void *codegen(void *ctx_) const;
 };
 
 typedef enum class BinaryOpType {
@@ -104,6 +98,7 @@ public:
     );
     std::string toJsonString() const override;
     ExprKind getKind() const override;
+    void *codegen(void *ctx_) const override;
 };
 
 class UnaryOp : public Expr {
@@ -114,6 +109,7 @@ public:
     UnaryOp(LocationInfo loc, std::unique_ptr<Expr> rhs, UnaryOpType op);
     std::string toJsonString() const override;
     ExprKind getKind() const override;
+    void *codegen(void *ctx_) const override;
 };
 
 class VarRef : public Expr {
@@ -123,6 +119,8 @@ public:
     VarRef(LocationInfo loc, std::string name);
     std::string toJsonString() const override;
     ExprKind getKind() const override;
+    std::string const &getVarName() const override;
+    void *codegen(void *ctx_) const override;
 };
 
 class Constant : public Expr {
@@ -132,6 +130,7 @@ public:
     Constant(LocationInfo loc, uint8_t value);
     std::string toJsonString() const override;
     ExprKind getKind() const override;
+    void *codegen(void *ctx_) const override;
 };
 
 class FunctionCall : public Expr {
@@ -146,6 +145,7 @@ public:
     );
     std::string toJsonString() const override;
     ExprKind getKind() const override;
+    void *codegen(void *ctx_) const override;
 };
 
 class Block : public Expr {
@@ -162,6 +162,7 @@ public:
     );
     std::string toJsonString() const override;
     ExprKind getKind() const override;
+    void *codegen(void *ctx_) const override;
 };
 
 class If : public Expr {
@@ -173,6 +174,7 @@ public:
     If(LocationInfo loc, std::unique_ptr<Expr> condition, std::unique_ptr<Expr> branch, std::optional<std::unique_ptr<Expr>> else_branch);
     std::string toJsonString() const override;
     ExprKind getKind() const override;
+    void *codegen(void *ctx_) const override;
 };
 
 class While : public Expr {
@@ -183,13 +185,8 @@ public:
     While(LocationInfo loc, std::unique_ptr<Expr> condition, std::unique_ptr<Expr> branch);
     std::string toJsonString() const override;
     ExprKind getKind() const override;
+    void *codegen(void *ctx_) const override;
 };
-
-// TODO auto-generate for every function before codegen of block
-typedef struct FunctionProto {
-    std::string name;
-    std::vector<std::string> args;
-} FunctionProto;
 
 class FunctionDef : public Statement {
     FunctionProto m_proto;
@@ -208,9 +205,10 @@ public:
         FunctionProto proto,
         std::unique_ptr<Block> block
     );
-    FunctionProto const &getProto() const;
     std::string toJsonString() const override;
     StatementKind getKind() const override;
+    FunctionProto const &getProto() const override;
+    void *codegen(void *ctx_) const override;
 };
 
 class DeclAssignment : public Statement {
@@ -221,6 +219,8 @@ public:
     DeclAssignment(LocationInfo loc, std::string name, std::optional<std::unique_ptr<Expr>> value);
     std::string toJsonString() const override;
     StatementKind getKind() const override;
+    void *codegen(void *ctx_) const override;
+    void *global_codegen(void *ctx_) const;
 };
 
 class Assignment : public Statement {
@@ -231,6 +231,7 @@ public:
     Assignment(LocationInfo loc, std::unique_ptr<Expr> key, std::unique_ptr<Expr> value);
     std::string toJsonString() const override;
     StatementKind getKind() const override;
+    void *codegen(void *ctx_) const override;
 };
 
 class Return : public Statement {
@@ -240,6 +241,7 @@ public:
     Return(LocationInfo loc, std::unique_ptr<Expr> value);
     std::string toJsonString() const override;
     StatementKind getKind() const override;
+    void *codegen(void *ctx_) const override;
 };
 
 class ExprStmt : public Statement {
@@ -249,5 +251,6 @@ public:
     ExprStmt(LocationInfo loc, std::unique_ptr<Expr> expr);
     std::string toJsonString() const override;
     StatementKind getKind() const override;
+    void *codegen(void *ctx_) const override;
 };
 }  // namespace ast

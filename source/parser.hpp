@@ -13,6 +13,7 @@
 #include <memory>
 
 namespace parser {
+// TODO add a required LocationInfo field to this
 class UnexpectedTokenError : public std::exception {
     std::string m_message;
 
@@ -41,6 +42,7 @@ typedef struct TokenIter {
     std::optional<token::Token> peekLast() const;
 } TokenIter;
 
+// TODO replace line and file by LocationInfo loc field
 typedef struct Error {
     uint32_t line;
     StringRef file;
