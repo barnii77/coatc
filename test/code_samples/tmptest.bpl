@@ -9,7 +9,7 @@ fn main(b) {
         //-a
     };
     while (b) {
-        print(b);
+        print(c);
     }
     print(a);
     while {}

@@ -51,3 +51,11 @@ typedef struct LocationInfo {
     StringRef file;
 } LocationInfo;
 
+enum class OptLevel {
+    O0,
+    O1,
+    O2,
+    Os,
+    Oz,
+    O3
+};

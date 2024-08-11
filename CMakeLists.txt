@@ -21,7 +21,8 @@ add_library(
     source/lexer.cpp
     source/ast.cpp
     source/parser.cpp
-    source/llvm_codegen.cpp
+    source/LLVMCodeGen/codegen.cpp
+    source/LLVMCodeGen/optimization.cpp
 )
 
 target_include_directories(
@@ -60,7 +61,27 @@ target_link_libraries(compiler_lib PRIVATE
     LLVMAnalysis
     LLVMTransformUtils
     LLVMBitWriter
-    # LLVMVerifier
+    LLVMBitReader
+    LLVMExecutionEngine
+    LLVMInterpreter
+    LLVMObject
+    LLVMCodeGen
+    LLVMTarget
+    LLVMScalarOpts
+    LLVMInstCombine
+    LLVMSupport
+    LLVMGlobalISel
+    LLVMPasses
+    LLVMSelectionDAG
+    LLVMObjectYAML
+    LLVMRemarks
+    LLVMProfileData
+    LLVMTextAPI
+    LLVMFuzzMutate
+    LLVMX86CodeGen
+    LLVMARMCodeGen
+    LLVMExecutionEngine
+    LLVMTextAPI
 )
 # ---- Install rules ----
 

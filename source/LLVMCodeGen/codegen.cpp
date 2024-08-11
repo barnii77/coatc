@@ -1,8 +1,10 @@
 /* This is the llvm codegen backend of the bpl compiler. Some key info about it:
- * All return types from functions are
+ * All return types from functions are void pointers. Statements typically return nullptrs from their codegen,
+ * except declarations, which return a pointer to an AllocaInst (stack allocation) downcasted to an llvm::Value pointer.
+ * Why void pointers? I *might* add other codegen backends (mlir, custom?) in the future and therefore want to make the codegen opaque.
  */
 
-#include "llvm_codegen.hpp"
+#include "LLVMCodeGen/codegen.hpp"
 
 void assertNonNull(void *ptr) {
     if (!ptr)
@@ -28,6 +30,7 @@ llvm::AllocaInst *allocaInDeclBlock(codegen::Context *ctx, llvm::Type *ty, char 
     auto saved_ip = ctx->builder->saveIP();
     ctx->builder->SetInsertPoint(ctx->state->declarations_block);
     llvm::AllocaInst *alloca = ctx->builder->CreateAlloca(ty, nullptr, name);
+    ctx->builder->CreateStore(llvm::PoisonValue::get(ty), alloca);
     ctx->builder->restoreIP(saved_ip);
     return alloca;
 }
@@ -359,7 +362,7 @@ void *ast::While::codegen(void *ctx_) const {
     // TODO support implicit returns from breaks
     ctx->builder->CreateBr(cond_bb);
     ctx->builder->SetInsertPoint(cond_bb);
-    llvm::Value *condition = ctx->builder->CreateICmpNE(static_cast<llvm::Value*>(m_condition->codegen(ctx)), llvm::ConstantInt::get(*ctx->llvm_ctx, llvm::APInt(8, 0, false)));
+    llvm::Value *condition = ctx->builder->CreateICmpNE(static_cast<llvm::Value*>(m_condition->codegen(ctx)), llvm::ConstantInt::get(*ctx->llvm_ctx, llvm::APInt(8, 0, false)), "condtmp");
     ctx->builder->CreateCondBr(condition, loop_body_bb, post_while_bb);
 
     // loop body branch
@@ -403,6 +406,13 @@ void *ast::FunctionDef::codegen(void *ctx_) const {
     
     fn->insert(fn->end(), entry_bb);
     ctx->builder->SetInsertPoint(entry_bb);
+
+    i = 0;
+    for (llvm::Argument &arg_val : fn->args()) {
+        llvm::AllocaInst *alloca = new_state.named_values[m_proto.args[i++]];
+        ctx->builder->CreateStore(&arg_val, alloca);
+    }
+
     llvm::Value *implicit_ret = static_cast<llvm::Value*>(m_block->codegen(ctx));
     if (implicit_ret)
         ctx->builder->CreateRet(implicit_ret);

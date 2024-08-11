@@ -7,12 +7,23 @@
 #include "lib.hpp"
 #include "lexer.hpp"
 #include "parser.hpp"
-#include "llvm_codegen.hpp"
+#include "LLVMCodeGen/codegen.hpp"
+#include "LLVMCodeGen/optimization.hpp"
+// #include "LLVMCodeGen/lowering.hpp"
 
-#define RUN_ONLY_TMPTEST
 #define ERR_N_SURROUND_LINES_PRINTED 3
 #define ARROW_TYPE 3
 
+enum class CompilerOutKind {
+    tokens,
+    ast,
+    llvm_ir,
+    optimized_llvm_ir,
+    // asm,
+    // bin
+};
+
+// TODO I feel like when llvm.lifetime.start is being called in the ir the size parameter should be passed as bytes but seems to be bits instead
 // todo add a way to also load an ast from json
 // TODO break/continue statements
 // TODO add comparison operators
@@ -128,29 +139,33 @@ void printErrorsAndWarnings(
     }
 }
 
-void dbgPrintTokens(std::vector<token::Token> const &tokens) {
+void printTokens(std::stringstream &out, std::vector<token::Token> const &tokens) {
     for (auto const &token : tokens) {
-        std::cout << "Token: " << (uint64_t) token.value.start << " " << token.value.length << " " << static_cast<uint32_t>(token.type) << std::endl;
-        std::cout << "Token value: ";
-        if (token.value.length == 0) std::cout << "<eof>";
+        out << "Token: " << (uint64_t) token.value.start << " " << token.value.length << " " << static_cast<uint32_t>(token.type) << std::endl;
+        out << "Token value: ";
+        if (token.value.length == 0) out << "<eof>";
         for (int i = 0; i < token.value.length; i++) {
-            std::cout << token.value.start[i];
+            out << token.value.start[i];
         }
-        std::cout << std::endl;
+        out << std::endl;
     }
 }
 
-void dbgPrintIR(std::string const &ir) {
-    std::cout << ir << std::endl << std::endl;
+void printIR(std::stringstream &out, std::string const &ir) {
+    out << ir << std::endl << std::endl;
 }
 
-void dbgPrintAST(ast::Block *block) {
-    std::cout << block->toJsonString() << std::endl;
+void printAST(std::stringstream &out, ast::Block *block) {
+    out << block->toJsonString() << std::endl;
 }
 
-std::string compileToIR(StringRef file, StringRef code) {
+std::string compile(StringRef file, StringRef code, CompilerOutKind out_kind, OptLevel opt_level) {
+    std::stringstream out;
     auto const tokens = token::tokenize(file, code);
-    // dbgPrintTokens(tokens);
+    if (out_kind == CompilerOutKind::tokens) {
+        printTokens(out, tokens);
+        return out.str();
+    }
 
     std::vector<StringRef> code_lines;
     uint32_t start_offset = 0;
@@ -164,35 +179,48 @@ std::string compileToIR(StringRef file, StringRef code) {
         code_lines.push_back(StringRef {.start = code.start + start_offset, .length = code.length - 1 - start_offset});
 
     std::vector<parser::Error> pr_errors;
-    auto block = parser::parse(file, tokens, &pr_errors);
-    // dbgPrintAST(block.get());
     std::vector<codegen::Error> cg_errs;
     std::vector<codegen::Warning> cg_warns;
+
+    std::unique_ptr<ast::Block> block = parser::parse(file, tokens, &pr_errors);
+    if (out_kind == CompilerOutKind::ast) {
+        printAST(out, block.get());
+        printErrorsAndWarnings(code_lines, pr_errors, cg_errs, cg_warns);
+        return out.str();
+    }
+
     codegen::State state;
     codegen::Context ctx = codegen::newContext(file, &cg_errs, &cg_warns, &state);
     block->codegen(&ctx);
-    std::string ir = codegen::dumpIR(&ctx);
-    // dbgPrintIR(ir);
-    printErrorsAndWarnings(code_lines, pr_errors, cg_errs, cg_warns);
+    if (out_kind == CompilerOutKind::llvm_ir) {
+        out << codegen::dumpIR(&ctx);
+        printErrorsAndWarnings(code_lines, pr_errors, cg_errs, cg_warns);
+        return out.str();
+    }
 
-    return ir;
+    codegen::optimizeModule(*ctx.module, opt_level);
+    if (out_kind == CompilerOutKind::optimized_llvm_ir) {
+        out << codegen::dumpIR(&ctx);
+        printErrorsAndWarnings(code_lines, pr_errors, cg_errs, cg_warns);
+        return out.str();
+    }
+
+    // std::string asm = codegen::lowerToAssembly(*ctx.module, opt_level);
+    // if (out_kind == CompilerOutKind::asm) {
+    //     out << asm;
+    //     printErrorsAndWarnings(code_lines, pr_errors, cg_errs, cg_warns);
+    //     return out.str();
+    // }
+
+    throw std::runtime_error("unsupported CompilerOutKind (outputting executables not supported yet)");
 }
 
 int main(int argc, char **argv) {
-#ifdef RUN_ONLY_TMPTEST
-    argc = 1;
-#endif
-
+    OptLevel opt_level = OptLevel::O1;
+    CompilerOutKind out_kind = CompilerOutKind::optimized_llvm_ir;
     if (argc == 1) {
         for (auto const &e : std::filesystem::directory_iterator("test/code_samples")) {
             std::string path = e.path();
-#ifdef RUN_ONLY_TMPTEST
-            if (path != "test/code_samples/tmptest.bpl")
-                continue;
-#else
-            if (path == "test/code_samples/tmptest.bpl")
-                continue;
-#endif
             std::cout << "RUNNNIG TEST " << path << std::endl << std::endl;
             std::ifstream in_file(path);
             std::stringstream content_strm;
@@ -202,7 +230,7 @@ int main(int argc, char **argv) {
                 .start = path.c_str(),
                 .length = path.length(),
             };
-            std::string ir = compileToIR(file_sr, StringRef {.start = content.c_str(), .length = content.length()});
+            std::string ir = compile(file_sr, StringRef {.start = content.c_str(), .length = content.length()}, out_kind, opt_level);
             std::string out_path = std::string("test/llvmir_out") + &path.c_str()[path.find_last_of('/')] + ".ll";
             std::cout << "writing ir to " << out_path << std::endl;
             std::ofstream out_file(out_path);
@@ -219,29 +247,11 @@ int main(int argc, char **argv) {
                 .start = path.c_str(),
                 .length = path.length(),
             };
-            std::string ir = compileToIR(file_sr, StringRef {.start = content.c_str(), .length = content.length()});
+            std::string ir = compile(file_sr, StringRef {.start = content.c_str(), .length = content.length()}, out_kind, opt_level);
             std::string out_path = path + ".ll";
             std::ofstream out_file(out_path);
             out_file << ir;
         }
     }
-    // auto const code = std::string {
-    //     "fn main(b) {\n"
-    //         "let a = 3;\n"
-    //         "b = add1(a * 3 - 2);\n"
-    //         "if (1 - a) {\n"
-    //             "return 1;\n"
-    //             "0\n"
-    //         "} else {\n"
-    //             "a\n"
-    //         "};\n"
-    //         "print(a);\n"
-    //         "return 0;\n"
-    //     "}"
-
-    //     "fn add1(x) {\n"
-    //         "return x + 1;\n"
-    //     "}\n"
-    // };
     return 0;
 }
