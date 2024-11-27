@@ -223,16 +223,46 @@ ast::ExprKind ast::While::getKind() const {
     return ast::ExprKind::while_;
 }
 
+ast::For::For(
+    LocationInfo loc,
+    std::unique_ptr<Statement> init,
+    std::unique_ptr<Expr> condition,
+    std::unique_ptr<Statement> update,
+    std::unique_ptr<Expr> branch
+) : ast::Expr(loc), m_init(std::move(init)), m_condition(std::move(condition)), m_update(std::move(update)), m_branch(std::move(branch))
+{}
+
+std::string ast::For::toJsonString() const {
+    return jsonLocPrefix(m_loc)
+        + "\"kind\": \"for\", \"init\": "
+        + m_branch->toJsonString()
+        + ", \"condition\": "
+        + m_condition->toJsonString()
+        + ", \"update\": "
+        + m_update->toJsonString()
+        + ", \"branch\": "
+        + m_branch->toJsonString()
+        + "}";
+}
+
+ast::ExprKind ast::For::getKind() const {
+    return ast::ExprKind::for_;
+}
+
 ast::FunctionDef::FunctionDef(
     LocationInfo loc,
     std::string name,
     std::vector<std::string> args,
-    std::unique_ptr<Block> block
+    std::unique_ptr<Block> block,
+    bool is_extern,
+    bool is_fastcc
 ) : ast::Statement(loc), m_block(std::move(block))
 {
     m_proto = ast::FunctionProto {
         .name = std::move(name),
-        .args = std::move(args)
+        .args = std::move(args),
+        .is_extern = is_extern,
+        .is_fastcc = is_fastcc
     };
 }
 

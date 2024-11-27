@@ -5,6 +5,7 @@
  */
 
 #include "LLVMCodeGen/codegen.hpp"
+#include "llvm/IR/CallingConv.h"
 
 void assertNonNull(void *ptr) {
     if (!ptr)
@@ -15,6 +16,7 @@ std::string codegen::dumpIR(codegen::Context const *ctx) {
     std::string tmp;
     llvm::raw_string_ostream os(tmp);
     os << *ctx->module;
+    os.flush();
     return tmp;
 }
 
@@ -44,13 +46,19 @@ char const *codegen::CodeGenException::what() {
 }
 
 bool variableDefined(codegen::Context *ctx, std::string const &variable) {
-    return ctx->state->named_values.find(variable) != ctx->state->named_values.end();
+    return ctx->state->named_values.find(variable) != ctx->state->named_values.end() && !ctx->module->getNamedGlobal(variable);
 }
 
 void createPrototype(codegen::Context *ctx, ast::FunctionProto const *proto) {
     std::vector<llvm::Type*> arg_types(proto->args.size(), ctx->builder->getInt8Ty());
     llvm::FunctionType *fty = llvm::FunctionType::get(ctx->builder->getInt8Ty(), arg_types, false);
-    llvm::Function *fn = llvm::Function::Create(fty, llvm::Function::ExternalLinkage, proto->name, ctx->module.get());
+    // FIXME
+    // auto linkage_type = proto->is_extern ? llvm::Function::ExternalLinkage : llvm::Function::InternalLinkage;  // FIXME InternalLinkage breaks it
+    // auto calling_conv = proto->is_fastcc ? llvm::CallingConv::Fast : llvm::CallingConv::C;  // FIXME fastcc breaks it
+    auto linkage_type = llvm::Function::ExternalLinkage;
+    auto calling_conv = llvm::CallingConv::C;
+    llvm::Function *fn = llvm::Function::Create(fty, linkage_type, proto->name, ctx->module.get());
+    fn->setCallingConv(calling_conv);
     uint32_t i = 0;
     for (auto &arg : fn->args()) {
         arg.setName(proto->args[i++]);
@@ -129,8 +137,13 @@ void *ast::VarRef::codegen(void *ctx_) const {
     codegen::Context *ctx = static_cast<codegen::Context*>(ctx_);
     if (!variableDefined(ctx, m_name))
         throw codegen::CodeGenException(std::string("use of undeclared variable '") + m_name + "'", m_loc);
-    llvm::AllocaInst *var_ptr = ctx->state->named_values.at(m_name);
-    return ctx->builder->CreateLoad(ctx->builder->getInt8Ty(), var_ptr, m_name + ".loadtmp");
+
+    llvm::Value *var_ptr;
+    if (ctx->state->named_values.find(m_name) != ctx->state->named_values.end())
+        var_ptr = static_cast<llvm::Value*>(ctx->state->named_values.at(m_name));  // llvm::AllocaInst*
+    else
+        var_ptr = static_cast<llvm::Value*>(ctx->module->getNamedGlobal(m_name));
+    return ctx->builder->CreateLoad(ctx->builder->getInt8Ty(), var_ptr, m_name + "_loadtmp");
 }
 
 void *ast::Constant::codegen(void *ctx_) const {
@@ -146,6 +159,8 @@ void *ast::FunctionCall::codegen(void *ctx_) const {
         auto proto = ast::FunctionProto {
             .name = m_name,
             .args = arg_names,
+            .is_extern = true,
+            .is_fastcc = true
         };
         createPrototype(ctx, &proto);
     }
@@ -176,11 +191,11 @@ void createLifetimeCall(codegen::Context *ctx, llvm::Value *obj, llvm::BasicBloc
 }
 
 void createLifetimeStartCall(codegen::Context *ctx, llvm::Value *obj, llvm::BasicBlock *lifetime_bb) {
-    createLifetimeCall(ctx, obj, lifetime_bb, "llvm.lifetime.start");
+    createLifetimeCall(ctx, obj, lifetime_bb, "llvm.lifetime.start.p0");
 }
 
 void createLifetimeEndCall(codegen::Context *ctx, llvm::Value *obj, llvm::BasicBlock *lifetime_bb) {
-    createLifetimeCall(ctx, obj, lifetime_bb, "llvm.lifetime.end");
+    createLifetimeCall(ctx, obj, lifetime_bb, "llvm.lifetime.end.p0");
 }
 
 void *ast::Block::codegen(void *ctx_) const {
@@ -208,12 +223,14 @@ void *ast::Block::codegen(void *ctx_) const {
                     });
                 }
             } else if (stmt->getKind() == ast::StatementKind::decl_assignment) {
-                throw std::runtime_error("TODO: implement global variables");
+                auto const *da = static_cast<ast::DeclAssignment*>(stmt.get());
+                da->globalCodegen(ctx);
             } else
                 throw std::runtime_error("parser generated other statement type in toplevel even though it should only generate function defs and decl assignments");
         }
         ctx->state = old_state_ptr;
-        llvm::verifyModule(*ctx->module);
+        if (llvm::verifyModule(*ctx->module))
+            ctx->errors->push_back(codegen::Error {.loc = m_loc, .msg = "Could not compile module"});
         return nullptr;
     } else {
         llvm::Function *parent_fn = ctx->builder->GetInsertBlock()->getParent();
@@ -380,6 +397,40 @@ void *ast::While::codegen(void *ctx_) const {
     return nullptr;
 }
 
+void *ast::For::codegen(void *ctx_) const {
+    codegen::Context *ctx = static_cast<codegen::Context*>(ctx_);
+    llvm::Function *parent_fn = ctx->builder->GetInsertBlock()->getParent();
+    llvm::BasicBlock *cond_bb = llvm::BasicBlock::Create(*ctx->llvm_ctx, "cond_block", parent_fn);
+    llvm::BasicBlock *loop_body_bb = llvm::BasicBlock::Create(*ctx->llvm_ctx, "loop_body");
+    llvm::BasicBlock *post_for_bb = llvm::BasicBlock::Create(*ctx->llvm_ctx, "post_for");
+
+    m_init->codegen(ctx);
+
+    // create condition block
+    // TODO support implicit returns from breaks
+    ctx->builder->CreateBr(cond_bb);
+    ctx->builder->SetInsertPoint(cond_bb);
+    llvm::Value *condition = ctx->builder->CreateICmpNE(static_cast<llvm::Value*>(m_condition->codegen(ctx)), llvm::ConstantInt::get(*ctx->llvm_ctx, llvm::APInt(8, 0, false)), "condtmp");
+    ctx->builder->CreateCondBr(condition, loop_body_bb, post_for_bb);
+
+    // loop body branch
+    parent_fn->insert(parent_fn->end(), loop_body_bb);
+    ctx->builder->SetInsertPoint(loop_body_bb);
+    llvm::Value *cond_true_result = static_cast<llvm::Value*>(m_branch->codegen(ctx));
+    if (cond_true_result != nullptr)
+        throw std::runtime_error("return values from loops not supported at the moment");
+
+    m_update->codegen(ctx);
+
+    ctx->builder->CreateBr(cond_bb);
+    loop_body_bb = ctx->builder->GetInsertBlock();
+
+    // after the loop
+    parent_fn->insert(parent_fn->end(), post_for_bb);
+    ctx->builder->SetInsertPoint(post_for_bb);
+    return nullptr;
+}
+
 void *ast::FunctionDef::codegen(void *ctx_) const {
     codegen::Context *ctx = static_cast<codegen::Context*>(ctx_);
     llvm::Function *fn = ctx->module->getFunction(m_proto.name);
@@ -421,14 +472,26 @@ void *ast::FunctionDef::codegen(void *ctx_) const {
     ctx->builder->SetInsertPoint(declarations_bb);
     ctx->builder->CreateBr(entry_bb);
     ctx->state = old_state_ptr;
-    // if (!ctx->errors->size())
+
     llvm::verifyFunction(*fn);
     return nullptr;
 }
 
-void *ast::DeclAssignment::global_codegen(void *ctx_) const {
+void *ast::DeclAssignment::globalCodegen(void *ctx_) const {
     codegen::Context *ctx = static_cast<codegen::Context*>(ctx_);
-    throw std::runtime_error("global variables are hard :( I'll figure them out later");
+    if (m_value)
+        throw codegen::CodeGenException("global variables do currently not support immediate initialization (I recommend creating a globalInit function that is called at the start of main instead)", m_loc);
+    if (ctx->module->getNamedGlobal(m_name))
+        throw codegen::CodeGenException("global variables must currently not be redefined (TODO: keep track of gvars manually to allow for that)", m_loc);
+    new llvm::GlobalVariable(  // TODO does this leak memory?
+        *ctx->module,
+        ctx->builder->getInt8Ty(),
+        /*isConstant*/ false,  // TODO encorporate type info for mutability later
+        llvm::GlobalValue::ExternalLinkage,
+        llvm::PoisonValue::get(ctx->builder->getInt8Ty()),
+        m_name
+    );
+    return nullptr;
 }
 
 void *ast::DeclAssignment::codegen(void *ctx_) const {
@@ -449,7 +512,11 @@ void *ast::Assignment::codegen(void *ctx_) const {
     if (m_key->getKind() == ast::ExprKind::var_ref) {
         std::string const &name = m_key->getVarName();
         if (variableDefined(ctx, name)) {
-            llvm::AllocaInst *var = ctx->state->named_values.at(name);
+            llvm::Value *var;
+            if (ctx->state->named_values.find(name) != ctx->state->named_values.end())
+                var = static_cast<llvm::Value*>(ctx->state->named_values.at(name));
+            else
+                var = static_cast<llvm::Value*>(ctx->module->getNamedGlobal(name));
             ctx->builder->CreateStore(value, var);
         } else  // TODO support pointer deref assignments here
             throw codegen::CodeGenException(std::string("use of undeclared variable '") + name + "'", m_loc);

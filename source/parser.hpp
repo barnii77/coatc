@@ -69,6 +69,7 @@ typedef struct ParseState {
 std::unique_ptr<ast::Expr> parseExpression(ParseState *ps);
 std::unique_ptr<ast::If> parseIfCond(ParseState *ps);
 std::unique_ptr<ast::While> parseWhileLoop(ParseState *ps);
+std::unique_ptr<ast::For> parseForLoop(ParseState *ps);
 std::unique_ptr<ast::FunctionCall> parseFunctionCall(ParseState *ps);
 // std::unique_ptr<ast::Assignment> parseAssignment(ParseState *ps);  // replaced for efficiency reasons by direct parsing in parseStatement
 std::unique_ptr<ast::DeclAssignment> parseDeclAssignment(ParseState *ps);

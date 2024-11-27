@@ -1,5 +1,7 @@
+let glob_var;
+
 // this is a comment
-fn main(b) {
+extern fn main(b) {
     let a = 3;
     b = add1(a * 0x3f - 2);
     if (1 - a) {
@@ -15,6 +17,6 @@ fn main(b) {
     return 0x69;
 }
 
-fn add1(x) {
+externc fn add1(x) {
     return x + 1;
 }

@@ -21,6 +21,7 @@ typedef enum class ExprKind {
     block,
     if_,
     while_,
+    for_,
 } ExprKind;
 
 typedef enum class StatementKind {
@@ -35,6 +36,8 @@ typedef enum class StatementKind {
 typedef struct FunctionProto {
     std::string name;
     std::vector<std::string> args;
+    bool is_extern;
+    bool is_fastcc;
 } FunctionProto;
 
 class Expr {
@@ -188,6 +191,19 @@ public:
     void *codegen(void *ctx_) const override;
 };
 
+class For : public Expr {
+    std::unique_ptr<Statement> m_init;
+    std::unique_ptr<Expr> m_condition;
+    std::unique_ptr<Statement> m_update;
+    std::unique_ptr<Expr> m_branch;
+
+public:
+    For(LocationInfo loc, std::unique_ptr<Statement> init, std::unique_ptr<Expr> condition, std::unique_ptr<Statement> update, std::unique_ptr<Expr> branch);
+    std::string toJsonString() const override;
+    ExprKind getKind() const override;
+    void *codegen(void *ctx_) const override;
+};
+
 class FunctionDef : public Statement {
     FunctionProto m_proto;
     // TODO one could probably get rid of this unique_ptr
@@ -198,7 +214,9 @@ public:
         LocationInfo loc,
         std::string name,
         std::vector<std::string> args,
-        std::unique_ptr<Block> block
+        std::unique_ptr<Block> block,
+        bool is_extern = true,
+        bool is_fastcc = true
     );
     FunctionDef(
         LocationInfo loc,
@@ -220,7 +238,7 @@ public:
     std::string toJsonString() const override;
     StatementKind getKind() const override;
     void *codegen(void *ctx_) const override;
-    void *global_codegen(void *ctx_) const;
+    void *globalCodegen(void *ctx_) const;
 };
 
 class Assignment : public Statement {

@@ -50,6 +50,7 @@ std::string displayTokenType(TokenType t) {
     if (t == TokenType::if_kwd) return "if";
     if (t == TokenType::else_kwd) return "else";
     if (t == TokenType::while_kwd) return "while";
+    if (t == TokenType::for_kwd) return "for";
     if (t == TokenType::return_kwd) return "return";
     if (t == TokenType::ident) return "ident";
     if (t == TokenType::number) return "number";
@@ -141,6 +142,10 @@ std::vector<Token> tokenize(StringRef file, StringRef code_) {
                 result.push_back(
                     KWD_TOKEN(while_kwd)
                 );
+            } else if (ident == "for") {
+                result.push_back(
+                    KWD_TOKEN(for_kwd)
+                );
             } else if (ident == "return") {
                 result.push_back(
                     KWD_TOKEN(return_kwd)
@@ -148,6 +153,14 @@ std::vector<Token> tokenize(StringRef file, StringRef code_) {
             } else if (ident == "let") {
                 result.push_back(
                     KWD_TOKEN(let_kwd)
+                );
+            } else if (ident == "extern") {
+                result.push_back(
+                    KWD_TOKEN(extern_kwd)
+                );
+            } else if (ident == "externc") {
+                result.push_back(
+                    KWD_TOKEN(externc_kwd)
                 );
             } else {
                 StringRef ident_str = {

@@ -54,8 +54,14 @@ typedef struct LocationInfo {
 enum class OptLevel {
     O0,
     O1,
-    O2,
     Os,
     Oz,
-    O3
+    O2,
+    O3,
+};
+
+enum class LTOKind {
+    none,
+    thin,
+    full,
 };

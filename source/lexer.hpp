@@ -30,7 +30,10 @@ typedef enum class TokenType : uint32_t {
     if_kwd,
     else_kwd,
     while_kwd,
+    for_kwd,
     return_kwd,
+    extern_kwd,
+    externc_kwd,
 
     ident,
     number,

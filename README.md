@@ -1,4 +1,5 @@
 # bpl
+CURRENTLY BROKEN, and will remain broken for another few months
 
 This is the bpl project.
 
