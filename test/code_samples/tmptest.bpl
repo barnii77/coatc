@@ -13,7 +13,7 @@ fn main(b) {
     }
     print(a);
     while {}
-    return 0x69;
+    return 0x42;
 }
 
 fn add1(x) {

@@ -14,7 +14,7 @@ extern fn main(b) {
         print(b);
     }
     print(a);
-    return 0x69;
+    return 0x42;
 }
 
 externc fn add1(x) {
